@@ -109,8 +109,8 @@ Rationale:
 - **IMP-001**: Implement a Terraform module or reusable pattern that provisions a Key Vault per environment with `sku = "premium"`, `soft_delete_enabled = true`, and `purge_protection_enabled = true`.
 - **IMP-002**: Enforce environment-specific `soft_delete_retention_days`: `7` for dev/test and `90` for prod.
 - **IMP-003**: Use `azurerm_key_vault` with `public_network_access_enabled = false` and configure `network_acls` or private endpoints for authorized access. If public network access is permitted, require restrictive ACLs with `default_action = "Deny"`, `bypass = "AzureServices"`, and explicit `ip_rules`.
-- **IMP-004**: Set `rbac_authorization_enabled = true`, disable `access_policy` blocks, and use `azurerm_role_assignment` to grant `Key Vault Crypto Service Encryption User`, `Key Vault Administrator`, `Key Vault Secrets Officer`, or least privilege roles to managed identities.
-- **IMP-005**: Configure `azurerm_monitor_diagnostic_setting` to send `AuditEvent` and metric logs to a centralized Log Analytics workspace, storage account, or event hub.
+- **IMP-004**: Configure `azurerm_monitor_diagnostic_setting` to send `AuditEvent` and metric logs to a centralized Log Analytics workspace, storage account, or event hub.
+- **IMP-005**: Set `rbac_authorization_enabled = true`, disable `access_policy` blocks, and use `azurerm_role_assignment` to grant `Key Vault Crypto Service Encryption User`, `Key Vault Administrator`, `Key Vault Secrets Officer`, or least privilege roles to managed identities.
 - **IMP-006**: Create HSM-backed keys via `azurerm_key_vault_key` with `key_type = "RSA-HSM"`, `key_size = 4096`, and `key_opts = ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey"]`.
 - **IMP-007**: Set `expires_on = timestampadd("day", 365, utcnow())` for keys and `expiration_date` for secrets at creation time, using deployment-time logic to calculate one-year expiry.
 - **IMP-008**: Configure rotation policy using `time_before_expiry` with `automatic { time_before_expiry = "P90D" }`, `expire_after = "P365D"`, and `notify_before_expiry = "P89D"`.
@@ -124,3 +124,5 @@ Rationale:
 - **REF-003**: Azure Key Vault security best practices: https://learn.microsoft.com/azure/key-vault/general/security-controls
 - **REF-004**: Azure Key Vault RBAC and managed identities: https://learn.microsoft.com/azure/key-vault/general/rbac-guide
 - **REF-005**: Azure Key Vault rotation policy: https://learn.microsoft.com/azure/key-vault/keys/rotation-policy
+- **REF-006**: Guardrail policy initiative: Enforce recommended guardrails for Azure Key Vault (`Enforce-Guardrails-KeyVault_20260203`)
+- **REF-007**: Guardrail policy initiative: Enforce additional recommended guardrails for Key Vault (`Enforce-Guardrails-KeyVault-Sup`)
