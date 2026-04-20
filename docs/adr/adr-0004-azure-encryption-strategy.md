@@ -21,6 +21,7 @@ Key requirements:
 - Use versionless key references where possible to simplify rotation and reduce deployment complexity.
 - Encrypt all virtual machines at host level.
 - Use Disk Encryption Sets with `encryption_type = "EncryptionAtRestWithPlatformAndCustomerKeys"` for double encryption when enabling disk encryption.
+- **Azure Log Analytics Workspaces and Event Hubs**: Only encrypt with CMK on explicit request, as CMK encryption incurs significant base costs and should not be enabled by default.
 - Treat infrastructure encryption as optional; do not require it for every workload.
 - Encryption in transport is mandatory.
 - Require TLS 1.2 or newer for all supported network communication.
@@ -39,6 +40,7 @@ Adopt an Azure encryption strategy that prioritizes transport security, customer
 
 Key decisions:
 - Use Customer Managed Keys (CMK) for all supported PaaS and IaaS resources where CMK support exists and does not impose undue operational burden.
+- **Azure Log Analytics Workspaces and Event Hubs** default to platform-managed encryption; enable CMK only upon explicit customer request, as CMK encryption introduces recurring cost overhead.
 - Prefer versionless key references in Key Vault for platform resources that support them, allowing automatic key rollover without resource redeployment.
 - Enable Encryption at Host for all Azure virtual machines to protect VM state and temporary data at the physical host layer.
 - For disk encryption, use Azure Disk Encryption Sets with `encryption_type = "EncryptionAtRestWithPlatformAndCustomerKeys"` to achieve both platform and customer key encryption when customer keys are applied.
@@ -53,6 +55,7 @@ Rationale:
 - Versionless key references reduce deployment churn and simplify rotation lifecycles.
 - Encryption at host provides an additional layer of protection for VM workloads beyond disk and platform encryption.
 - Double encryption in Disk Encryption Sets delivers a stronger defense-in-depth posture when customer-managed keys are used for disk storage.
+- **Log Analytics and Event Hubs CMK encryption**: Platform-managed encryption provides adequate security for most workloads while avoiding unnecessary base costs. CMK encryption should be an opt-in choice for workloads with specific compliance or data residency requirements, as recurring CMK costs can be significant.
 - Keeping infrastructure encryption optional avoids unnecessary complexity for workloads that do not require it and maintains flexibility.
 - Avoiding VNet encryption prevents reliance on a feature with known limitations and provides a more predictable operational model.
 
@@ -74,6 +77,7 @@ Rationale:
 - **NEG-003**: Encryption at Host may introduce compatibility constraints for legacy VM images or unsupported guest configurations.
 - **NEG-004**: Disk Encryption Sets may increase cost and complexity for workloads that do not strictly require customer key-backed disk encryption.
 - **NEG-005**: Optional infrastructure encryption may lead to inconsistent encryption posture across workloads if not governed by clear policy.
+- **NEG-006**: Log Analytics and Event Hubs CMK encryption carries substantial recurring base costs (~£50–£200/month per resource depending on throughput) that must be explicitly evaluated and approved during workload design.
 
 ## Alternatives Considered
 
