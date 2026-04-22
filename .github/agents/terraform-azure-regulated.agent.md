@@ -48,8 +48,11 @@ Before proceeding to code generation:
 **Non-negotiable review points**:
 - Do not hardcode environment behavior from `env`; require explicit feature variables such as `enable_*` toggles when resource presence differs by stage.
 - Do not place secrets in Terraform variables, `.tfvars`, or state-backed resource arguments unless the ADRs explicitly allow that pattern.
+- Only extract values into input variables when differences between stages or deployment targets are realistically expected, for example `subscription_id`, backend coordinates, location, or approved feature toggles. Keep stable, non-sensitive constants inline instead of abstracting them prematurely.
 - Treat `hashicorp/azurerm` as the default provider and justify any `Azure/azapi` usage with an explicit coverage-gap or preview-feature note.
 - Prefer direct resources plus `for_each` over modules unless the ADR-0006 multi-resource reuse threshold is met.
+- For Key Vault designs, enforce ADR-0003 concretely: Premium SKU, `rbac_authorization_enabled = true`, no legacy access policies, managed identity plus least-privilege RBAC, restricted public access or private endpoints, diagnostics, purge protection, environment-specific retention, HSM-backed keys, expiry metadata, and rotation policy where applicable.
+- For encryption-capable services, enforce ADR-0004 concretely: CMK is mandatory where the Azure service supports it, versionless key references are preferred where supported, TLS 1.2+ is mandatory, and VM or VMSS host encryption must be enabled where supported.
 
 ---
 
@@ -113,8 +116,8 @@ Before writing or revising Terraform, explicitly check the proposed design again
 Minimum conformance checks:
 - **ADR-0001**: Stage-specific values are in `environments/*.tfvars`; backend settings are in `environments/*.tfbackend`; no stage-driven resource creation logic based directly on `env`
 - **ADR-0002**: Root module uses `main.tf`, `locals.tf`, `variables.tf`, `outputs.tf`, plus resource files grouped by type
-- **ADR-0003**: Key Vault uses Premium, RBAC, managed identities, HSM-backed keys, diagnostics, network restrictions, expiry, and rotation controls where applicable
-- **ADR-0004**: CMK is treated as mandatory where supported, TLS 1.2+ is enforced, and VM/VMSS host encryption is enabled where applicable
+- **ADR-0003**: Key Vault uses Premium, `rbac_authorization_enabled = true`, no `access_policy` blocks, managed identities with object-type-specific least-privilege RBAC, HSM-backed keys, diagnostics, restricted network access, purge protection, environment-specific soft delete retention, expiry metadata, secret `content_type`, and rotation controls where applicable
+- **ADR-0004**: CMK is treated as mandatory where supported, platform-managed keys are used only when Azure support is unavailable, versionless key references are preferred where supported, TLS 1.2+ is enforced, and VM/VMSS host encryption is enabled where applicable
 - **ADR-0005**: `hashicorp/azurerm` is primary; `Azure/azapi` requires explicit justification and migration intent
 - **ADR-0006**: Modules are only introduced for repeated multi-resource patterns; otherwise prefer direct resources and `for_each`
 
@@ -210,14 +213,12 @@ provider "azurerm" {
 
 #### 4.2 Environment Configuration Files
 
-Create environment-specific configuration files in `environments/` directory. Keep stage-specific values there, and avoid embedding service defaults in root code when they should vary by environment.
+Create environment-specific configuration files in `environments/` directory only for values that are expected to differ between stages or deployment targets. Keep those differences there, and avoid moving stable service defaults into `tfvars` when they are constant across deployments.
 
 **environments/dev.tfvars**:
 ```hcl
 env              = "dev"
 subscription_id  = "<dev-subscription-id>"
-application      = "myapp"
-owner            = "dev-team@example.com"
 # Additional dev-specific values and explicit feature toggles...
 ```
 
@@ -225,8 +226,6 @@ owner            = "dev-team@example.com"
 ```hcl
 env              = "prod"
 subscription_id  = "<prod-subscription-id>"
-application      = "myapp"
-owner            = "prod-team@example.com"
 # Additional prod-specific values and explicit feature toggles...
 ```
 
@@ -250,7 +249,7 @@ use_azuread_auth     = true
 
 #### 4.3 Variables File (variables.tf)
 
-Create comprehensive variable definitions with types, descriptions, validations, and defaults only where a true repository-wide default exists:
+Create variable definitions only for inputs that are expected to vary between stages or deployment targets. Do not create variables for stable literals just to make the module look generic. Use types, descriptions, validations, and defaults only where they add real control:
 
 ```hcl
 variable "subscription_id" {
@@ -259,7 +258,7 @@ variable "subscription_id" {
 }
 
 variable "location" {
-  description = "Azure region for resource deployment"
+  description = "Azure region for resource deployment when it differs by stage or target environment"
   type        = string
 }
 
@@ -272,31 +271,19 @@ variable "env" {
   }
 }
 
-variable "application" {
-  description = "Application name for resource naming"
-  type        = string
-  validation {
-    condition     = length(var.application) <= 15 && can(regex("^[a-z0-9-]+$", var.application))
-    error_message = "application must be lowercase alphanumeric and hyphens, max 15 chars"
-  }
-}
-
-variable "owner" {
-  description = "Owner of the resources (team name or email)"
-  type        = string
-}
-
-# Add all other variables with type, description, sensitive flags where applicable, and validation where restrictive rules are required
+# Add only those other variables whose values are expected to differ by stage or deployment target, with validation where restrictive rules are required
 ```
 
 Variable guidance:
 - Do not model secret values as normal input variables if doing so would place them in `.tfvars` or state.
 - Use explicit booleans for resource enablement, not `var.env == "prod"` style branching.
-- Avoid unnecessary locals and variables when a literal value is stable and non-sensitive.
+- If a value is stable, non-sensitive, and not expected to differ between stages or deployment targets, keep it inline instead of creating a variable.
+- Good candidates for variables are stage- or target-dependent values such as `subscription_id`, backend coordinates, location, SKU differences, retention periods, and explicit enablement flags.
+- Poor candidates for variables are fixed naming fragments, stable tags, constant TLS settings, and other repository-wide literals with no expected per-stage or per-target variation.
 
 #### 4.4 Locals File (locals.tf)
 
-Create local values only for computed values and genuinely reused naming/tagging patterns:
+Create local values only for computed values and genuinely reused naming or tagging patterns. Do not move constants into locals unless that improves clarity materially:
 
 ```hcl
 locals {
@@ -304,8 +291,6 @@ locals {
 
   common_tags = {
     environment   = var.env
-    application   = var.application
-    owner         = var.owner
     managed_by    = "terraform"
   }
 }
@@ -326,11 +311,13 @@ Create resource files organized by type (NOT by environment per ADR-0002). Only 
 
 When the design includes Key Vault, storage, compute, database, or messaging resources, apply the following checks explicitly:
 
-- Key Vault must default to Premium SKU, RBAC authorization, managed identity access, purge protection, soft delete retention by environment, restricted network access, and diagnostic settings.
-- HSM-backed keys and rotation policies must be used where ADR-0003 requires them.
-- Customer-managed keys must be used where ADR-0004 defines them as mandatory and the Azure service supports them.
+- Key Vault must use Premium SKU, `rbac_authorization_enabled = true`, Azure RBAC role assignments, no legacy `access_policy` blocks, managed identity access, purge protection, environment-specific soft delete retention, restricted network access, and diagnostic settings.
+- Key Vault keys must be HSM-backed where ADR-0003 requires them, with explicit expiry metadata and rotation policy settings. Secrets must not be sourced from `.tfvars`, must include `content_type`, and should be treated as ephemeral where the design allows it.
+- Customer-managed keys must be used where ADR-0004 defines them as mandatory and the Azure service supports them. Do not relax this for dev, convenience, budget, or delivery speed.
+- Use versionless Key Vault key references where the Azure service supports them, unless a documented technical limitation requires a versioned reference.
 - TLS 1.2+ must be enforced on supported endpoints and services.
 - For VM or VMSS designs, enable host encryption where supported and document any unsupported cases.
+- For Log Analytics Workspace and Event Hubs, do not describe CMK as optional by default. If the chosen service path supports CMK, treat CMK as part of the baseline and document unsupported SKU or feature-path constraints explicitly.
 
 Do not describe these controls as optional defaults if the ADR defines them as mandatory.
 
@@ -374,7 +361,7 @@ output "storage_account_id" {
 
 **For all resources, enforce:**
 
-- ✅ **Encryption at Rest**: Enable CMK (customer-managed keys) in production
+- ✅ **Encryption at Rest**: Enable CMK wherever the Azure service supports it and the ADR baseline requires it
 - ✅ **Encryption in Transit**: TLS 1.2+ enforced, HTTPS only
 - ✅ **Network Isolation**: Private endpoints for PaaS services, NSGs for compute
 - ✅ **Identity & Access**: Managed Identities for Azure services, RBAC with least privilege
@@ -388,16 +375,16 @@ Before finalizing code, verify:
 
 - [ ] No hardcoded secrets, passwords, or connection strings in any file
 - [ ] All PaaS services use Private Endpoints where applicable
-- [ ] Encryption at rest enabled on storage, databases, Key Vault
+- [ ] Encryption at rest enabled on storage, databases, messaging, and other supported services with CMK where Azure support exists; unsupported cases are documented explicitly
 - [ ] TLS 1.2+ enforced on all network communications
 - [ ] RBAC roles assigned with least privilege principle
 - [ ] Diagnostic settings and monitoring configured for all services
 - [ ] Network security groups defined for compute resources
-- [ ] Key Vault Premium tier with RBAC and purge protection enabled
+- [ ] Key Vault Premium tier with RBAC, no legacy access policies, purge protection, environment-specific retention, restricted network access, diagnostics, expiry metadata, and rotation settings enabled as applicable
 - [ ] Resource naming follows Cloud Adoption Framework pattern
 - [ ] All resources tagged with required metadata
 - [ ] Backend configuration externalized (not in terraform code)
-- [ ] Environment-specific values in .tfvars files (not hardcoded)
+- [ ] Only values with expected stage or deployment-target differences are placed in variables or `.tfvars`; stable literals stay inline
 
 ---
 
@@ -425,7 +412,7 @@ Create local modules ONLY when:
 ```
 terraform/
 ├── main.tf                    # Provider, backend, version constraints
-├── variables.tf               # All input variables
+├── variables.tf               # Only inputs expected to vary by stage or deployment target
 ├── locals.tf                  # Computed values and locals
 ├── outputs.tf                 # Output values
 ├── storage.tf                 # Storage resources
@@ -435,8 +422,8 @@ terraform/
 ├── security.tf                # Key Vault, RBAC, private endpoints
 ├── diagnostics.tf             # Monitoring, logging, alerts
 ├── environments/
-│   ├── dev.tfvars            # Dev environment variables
-│   ├── prod.tfvars           # Prod environment variables
+│   ├── dev.tfvars            # Dev-only differing values
+│   ├── prod.tfvars           # Prod-only differing values
 │   ├── dev.tfbackend         # Dev backend config
 │   └── prod.tfbackend        # Prod backend config
 ├── modules/                  # Local modules (only if justified per ADR-0006)
@@ -447,8 +434,8 @@ terraform/
 ├── .gitignore
 ├── .tflint.hcl               # Optional TFLint configuration
 ├── README.md
-├── terraform.tfvars.example  # Example variable values (no secrets)
-└── terraform.tfvars          # (Optional, not recommended for secrets)
+├── terraform.tfvars.example  # Example differing values only (no secrets)
+└── terraform.tfvars          # Optional only when target-specific inputs are genuinely needed
 ```
 
 ---
@@ -627,7 +614,7 @@ Before applying changes:
 
 Validate against regulatory requirements:
 
-- [ ] All data encrypted at rest (CMK in production)
+- [ ] All supported services use CMK at rest where ADR-0004 requires it; any unsupported service path is documented as a platform limitation
 - [ ] All data encrypted in transit (TLS 1.2+)
 - [ ] Network isolation verified (Private Endpoints, NSGs)
 - [ ] RBAC permissions follow least privilege
@@ -662,7 +649,7 @@ Before generating ANY Terraform code, verify:
 - ❌ Never hardcode passwords, API keys, or connection strings
 - ✅ Store secrets in Azure Key Vault
 - ✅ Access via Managed Identity with least privilege RBAC
-- ✅ Rotate secrets annually minimum
+- ✅ Use Premium Key Vault, no legacy access policies, expiry metadata, and annual maximum lifetime with rotation controls where applicable
 
 ### Network Security
 - ✅ Private endpoints for all PaaS services
@@ -671,9 +658,11 @@ Before generating ANY Terraform code, verify:
 - ✅ HTTPS only (no HTTP)
 
 ### Encryption
-- ✅ Encryption at rest: CMK in production, platform-managed acceptable for dev
+- ✅ Encryption at rest: CMK is mandatory where Azure support exists; platform-managed encryption is only acceptable when the Azure service or feature path does not support CMK
 - ✅ Encryption in transit: TLS 1.2 minimum
-- ✅ Key Vault Premium tier with HSM for regulated environments
+- ✅ Key Vault Premium tier with HSM-backed keys where ADR-0003 requires them
+- ✅ Versionless key references preferred where supported
+- ✅ Enable VM and VMSS host encryption where supported
 
 ### Compliance & Auditing
 - ✅ Diagnostic settings on all resources
@@ -699,7 +688,7 @@ Your work is complete when:
 4. ✅ Resource naming follows Cloud Adoption Framework conventions
 5. ✅ All resources include required tags and metadata
 6. ✅ Terraform code follows style guide and ADR patterns
-7. ✅ Environment configuration separated (dev/prod.tfvars and .tfbackend files)
+7. ✅ Only stage- or target-specific differences are externalized in dev/prod `.tfvars` and `.tfbackend` files
 8. ✅ Security baselines applied (encryption, private endpoints, RBAC, logging)
 9. ✅ No hardcoded secrets anywhere in code
 10. ✅ README.md with deployment instructions provided
@@ -744,7 +733,7 @@ Your work is complete when:
 2. Call azure-mcp/azureterraformbestpractices
 3. Design: App Service (Premium tier) + SQL Database (Premium, encrypted) + Key Vault (Premium, RBAC, HSM)
 4. Apply CAF naming: app-hipaaapp-prod-eastus-001, sql-hipaaapp-prod-eastus-001, kv-hipaaapp-prod-eastus-001
-5. Generate modular Terraform with dev/prod tfvars
+5. Generate Terraform with only real stage- or target-specific differences in dev/prod `tfvars`
 6. Enforce: Private endpoints, encryption (CMK), RBAC, diagnostic logging
 7. Provide README with HIPAA-specific security considerations
 
@@ -757,7 +746,7 @@ Your work is complete when:
 2. Fetch best practices for multi-region Azure infrastructure
 3. Design: Primary region + secondary region, failover strategy, backup/restore
 4. Apply naming conventions with region abbreviations
-5. Generate modular code with environment-specific failover flags
+5. Generate code with explicit failover flags only where stage or deployment-target differences are expected
 6. Add PCI-DSS specific controls: encrypted secrets, audit logging, RBAC
 7. Include cost estimation and maintenance documentation
 
