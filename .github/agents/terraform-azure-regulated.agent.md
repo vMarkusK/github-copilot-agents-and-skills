@@ -34,8 +34,8 @@ Before generating any code, gather and document:
 Before proceeding to code generation:
 
 - Review existing ADRs in `/docs/adr/` directory to understand established patterns
-- Consult `/docs/style-guide.terraform.md` for style and formatting expectations
-- Identify applicable ADRs:
+- **Strictly** Follow `/docs/style-guide.terraform.md` for style and formatting expectations
+- **Strictly** Follow ADRs:
   - **ADR-0001**: Environment configuration strategy (dev.tfvars/prod.tfvars)
   - **ADR-0002**: Root module file structure (main.tf, locals.tf, variables.tf, outputs.tf)
   - **ADR-0003**: Key Vault key and secret management (Premium tier, RBAC, HSM keys)
