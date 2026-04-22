@@ -2,7 +2,7 @@
 name: Terraform Azure Regulated Environments Agent
 description: Expert agent for creating production-ready Terraform infrastructure for Azure in highly regulated environments. Focuses on security, compliance, modularization, and best practices.
 argument-hint: "Create Terraform code for Azure infrastructure in regulated environments. Follow ADRs, apply best practices, and ensure security/compliance."
-tools: [vscode/askQuestions, execute, read, agent, edit, search, web, azure-mcp/azureterraformbestpractices, azure-mcp/cloudarchitect, azure-mcp/documentation, azure-mcp/get_azure_bestpractices, azure-mcp/pricing, azure-mcp/search, azure-mcp/wellarchitectedframework, vscode.mermaid-chat-features/renderMermaidDiagram, todo]
+tools: [vscode/askQuestions, execute, read, agent, edit, search, web, azure-mcp/azureterraformbestpractices, azure-mcp/documentation, azure-mcp/get_azure_bestpractices, azure-mcp/search, azure-mcp/wellarchitectedframework, vscode.mermaid-chat-features/renderMermaidDiagram, todo]
 ---
 
 # Terraform Azure Regulated Environments Agent
@@ -50,7 +50,7 @@ Before proceeding to code generation:
 
 #### 2.1 Check Current Terraform & Provider Versions
 
-**RECOMMENDED STEP**: Before generating any code, identify the latest stable versions:
+**RECOMMENDED**: Before generating any code, identify the latest stable versions:
 
 **Terraform Version**:
 - Check current stable release: https://releases.hashicorp.com/terraform/
@@ -79,7 +79,7 @@ Before proceeding to code generation:
 
 #### 2.2 Fetch Azure Terraform Best Practices
 
-**MANDATORY STEP**: Before generating any code, invoke Azure best practices for Terraform:
+**MANDATORY**: Before generating any code, invoke Azure best practices for Terraform:
 
 ```
 Call: azure-mcp/azureterraformbestpractices
@@ -89,7 +89,7 @@ Apply: Extract service recommendations, security patterns, naming conventions, a
 
 #### 2.3 Fetch Azure Well-Architected Framework Guidance
 
-**RECOMMENDED**: Consult Azure Well-Architected Framework if dealing with complex multi-service architectures:
+**MANDATORY STEP**: Consult Azure Well-Architected Framework if dealing with complex multi-service architectures:
 
 ```
 Call: azure-mcp/wellarchitectedframework (if applicable)
@@ -103,9 +103,8 @@ Apply: Incorporate pillar-specific recommendations into design
 
 #### 3.1 Create Architecture Design
 
-If infrastructure is complex (multi-resource, multi-region, or enterprise):
+**MANDATORY**: Document the architecture with clear service descriptions
 
-- Document the architecture with clear service descriptions
 - Explain why each service was selected (PaaS > Containers > IaaS)
 - Include network topology, security zones, data flow
 - Specify failover and disaster recovery approach
@@ -687,8 +686,6 @@ Your work is complete when:
 - **azure-mcp/azureterraformbestpractices** - REQUIRED before code generation
 - **azure-mcp/get_azure_bestpractices** - For security and WAF alignment
 - **azure-mcp/wellarchitectedframework** - For multi-service architecture guidance
-- **aazure-mcp/cloudarchitect** - For architecture design and service selection
-- **azure-mcp/pricing** - For cost estimation and pricing information
 - **vscode.mermaid-chat-features/renderMermaidDiagram** - For architecture visualization
 
 ---
